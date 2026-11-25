@@ -1,0 +1,36 @@
+feature,area,priority,original,clone,notes
+Conversación por voz en tiempo real con un personaje,conversación,must,yes,no,núcleo; Gemini Live gratis
+Avatar 3D que habla con labios sincronizados,personajes,must,yes,no,TalkingHead + modelos 3D libres propios
+Escenas de la vida real (café restaurante aeropuerto oficina parque),mundo,must,yes,no,escenas propias más sencillas
+Varios personajes con personalidad propia,personajes,must,yes,no,personajes inventados (no los de ellos)
+Subtítulos de lo que dice el personaje,conversación,must,yes,no,
+Traducción al español de cada frase,conversación,must,yes,no,clave para A1
+Sugerencias en pantalla de qué decir,conversación,must,yes,no,
+Retroalimentación al final (vocabulario gramática estilo fluidez),feedback,must,yes,no,
+Dificultad adaptada al nivel desde A1,niveles,must,yes,no,niveles A1 → B2
+Transcripción de la conversación,transcripción,must,yes,no,
+Escuchar de nuevo cualquier frase,transcripción,must,yes,no,
+Tocar una palabra para ver su significado y guardarla,vocabulario,must,yes,no,
+Centro de vocabulario guardado,vocabulario,must,yes,no,
+Repaso de vocabulario,vocabulario,must,yes,no,con repetición espaciada
+Racha diaria,progreso,must,yes,no,
+Funciona en MacBook y en iPhone,plataforma,must,yes,no,app web instalable
+Modo manos libres con turnos automáticos,conversación,should,yes,no,Gemini Live detecta cuándo terminas de hablar
+Ayuda de pronunciación,feedback,should,yes,no,
+Temas propios para conversar,temas,should,yes,no,
+Onboarding con nivel y tutorial,onboarding,should,yes,no,
+Relación o amistad con los personajes que recuerda lo hablado,personajes,should,yes,no,
+Congelador de racha,progreso,should,yes,no,
+Monedas o puntos,progreso,should,yes,no,
+Descargar la transcripción,transcripción,should,yes,no,
+Sincronizar progreso entre Mac e iPhone,plataforma,should,no,no,mejora propia; por confirmar opción gratuita
+Historias de los personajes que se desbloquean,personajes,could,yes,no,
+Temas de noticias deportes y cultura,temas,could,yes,no,
+Recordatorio cuando la racha está en riesgo,progreso,could,yes,no,notificaciones web en iPhone solo con app instalada
+Varias ciudades,mundo,could,yes,no,
+Formalidad configurable,ajustes,could,yes,no,
+LingoLeague y amigos,social,could,yes,skip,es su red de usuarios; app de una sola persona
+Pagos y suscripción premium,pagos,should,yes,skip,uso personal y gratis
+29 idiomas,idiomas,could,yes,skip,solo inglés
+Sus 1000+ avatares nombres voces e historias,personajes,could,yes,skip,son contenido de ellos; se crean propios
+Inicio de sesión con Google o correo,cuenta,could,yes,skip,app personal; se revisa con la sincronización
