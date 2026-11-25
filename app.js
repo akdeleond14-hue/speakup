@@ -71,10 +71,52 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': 
 const today = () => new Date().toLocaleDateString('en-CA');
 const KEY = 'speakup.v1';
 let S = { apiKey: '', level: 1, levelStars: 0, xp: 0, streak: 0, lastDay: '', sessions: 0, friends: {}, words: [], history: [], models: { ...DEFAULT_MODELS }, duplex: false };
-function load() { try { const v = JSON.parse(localStorage.getItem(KEY) || 'null'); if (v) S = { ...S, ...v, models: { ...DEFAULT_MODELS, ...(v.models || {}) } }; } catch (e) {} }
-function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+function merge(v) { if (v) S = { ...S, ...v, models: { ...DEFAULT_MODELS, ...(v.models || {}) } }; }
+function load() { try { merge(JSON.parse(localStorage.getItem(KEY) || 'null')); } catch (e) {} }
+// Nube (Firebase): guarda progreso y clave en la cuenta de Google de Ana; sincroniza Mac ↔ iPhone.
+const cloud = { on: false, user: null, ref: null, fs: null, timer: null, pending: false };
+function save() {
+  S.updatedAt = Date.now();
+  try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {}
+  if (cloud.user) { clearTimeout(cloud.timer); cloud.pending = true; cloud.timer = setTimeout(pushCloud, 1500); }
+}
+async function pushCloud() {
+  if (!cloud.user) return;
+  try { const data = JSON.parse(JSON.stringify(S)); await cloud.fs.setDoc(cloud.ref, data); cloud.pending = false; }
+  catch (e) { console.warn('No se pudo guardar en la nube', e); }
+}
+async function initCloud() {
+  let cfg = null;
+  try { cfg = (await import('./firebase-config.js')).default; } catch (e) {}
+  if (!cfg || !cfg.apiKey) return false;
+  const V = 'https://www.gstatic.com/firebasejs/11.0.2/';
+  const [{ initializeApp }, auth, fs] = await Promise.all([import(V + 'firebase-app.js'), import(V + 'firebase-auth.js'), import(V + 'firebase-firestore.js')]);
+  const app = initializeApp(cfg);
+  cloud.auth = auth; cloud.a = auth.getAuth(app); cloud.fs = fs; cloud.db = fs.getFirestore(app); cloud.on = true;
+  try { await auth.setPersistence(cloud.a, auth.browserLocalPersistence); } catch (e) {}
+  auth.onAuthStateChanged(cloud.a, async user => {
+    cloud.user = user;
+    if (!user) { show('login'); return; }
+    cloud.ref = fs.doc(cloud.db, 'users', user.uid);
+    try {
+      const snap = await fs.getDoc(cloud.ref);
+      const remote = snap.exists() ? snap.data() : null;
+      if (remote && (remote.updatedAt || 0) >= (S.updatedAt || 0)) { merge(remote); try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+      else { await pushCloud(); }
+      if (remote && !S.apiKey && remote.apiKey) S.apiKey = remote.apiKey;
+    } catch (e) { toast('No pude leer tu progreso de la nube. Sigo con lo guardado en este dispositivo.'); }
+    if (!talk.active) renderHome();
+  });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && cloud.pending) pushCloud(); });
+  return true;
+}
+async function login() {
+  $('loginErr').innerHTML = '';
+  try { await cloud.auth.signInWithPopup(cloud.a, new cloud.auth.GoogleAuthProvider()); }
+  catch (e) { $('loginErr').innerHTML = '<div class="err">No pude entrar con Google (' + esc(e.code || e.message) + '). Si Safari bloqueó la ventana, vuelve a tocar el botón.</div>'; }
+}
 const L = () => LEVELS[S.level - 1];
-const SECTIONS = ['setup', 'home', 'talk', 'summary', 'words', 'review', 'settings'];
+const SECTIONS = ['login', 'setup', 'home', 'talk', 'summary', 'words', 'review', 'settings'];
 function show(id) { for (const s of SECTIONS) $(s).classList.toggle('hidden', s !== id); window.scrollTo(0, 0); }
 const due = () => S.words.filter(w => w.due <= Date.now());
 
@@ -521,7 +563,8 @@ function renderSettings() {
   <details><summary class="note" style="margin-top:12px">Modelos de Google (solo si dejan de funcionar)</summary>
   <label for="mLive">Voz en vivo</label><input id="mLive" value="${esc(S.models.live)}"><label for="mText">Texto</label><input id="mText" value="${esc(S.models.text)}"><label for="mAlt">Texto (respaldo)</label><input id="mAlt" value="${esc(S.models.textAlt)}"><label for="mTts">Voz para escuchar frases</label><input id="mTts" value="${esc(S.models.tts)}"><button id="mReset" style="margin-top:8px">Restaurar modelos</button></details>
   <button class="pri" id="sSave" style="width:100%;margin-top:14px">Guardar</button></div>
-  <div class="card"><h3>Pasar tu progreso al otro dispositivo</h3><p class="note">Copia el código en este dispositivo y pégalo en el otro (Mac ↔ iPhone). No incluye tu clave.</p>
+  ${cloud.user ? `<div class="card"><h3>Tu cuenta</h3><p>Progreso guardado en la nube y sincronizado con tus otros dispositivos: <b>${esc(cloud.user.email || '')}</b></p><button id="logoutBtn">Salir de esta cuenta</button></div>` : ''}
+  <div class="card"><h3>Copia de seguridad</h3><p class="note">Copia este código y guárdalo en tus Notas por si acaso. No incluye tu clave.</p>
   <textarea id="xCode" rows="3" readonly></textarea><div class="two" style="margin-top:8px"><button id="xCopy">Copiar mi código</button><button id="xImport">Pegar e importar</button></div></div>
   <p class="note">En el plan gratuito de Google, tus conversaciones pueden usarse para mejorar sus productos. Personajes 3D: TalkingHead (MIT) y avatares de ejemplo para uso personal no comercial.</p>`;
   const st = { ...S }; delete st.apiKey; $('xCode').value = btoa(unescape(encodeURIComponent(JSON.stringify(st))));
@@ -535,6 +578,8 @@ document.addEventListener('click', async e => {
   if (b.dataset.go) { if (b.dataset.go === 'review') startReview(); else renderHome(); return; }
   if (b.dataset.ch) { const ch = CHARS.find(c => c.id === b.dataset.ch); talk.open(ch, ch.sits.find(s => s.id === b.dataset.sit)); return; }
   switch (b.id) {
+    case 'loginBtn': login(); break;
+    case 'logoutBtn': try { await cloud.auth.signOut(cloud.a); } catch (x) {} break;
     case 'keySave': {
       const k = $('keyIn').value.trim(); if (!k) return; S.apiKey = k; b.disabled = true; $('keyErr').innerHTML = '<p class="note">Comprobando…</p>';
       try { await gText('Reply with JSON {"ok":true}'); save(); renderHome(); }
@@ -573,4 +618,4 @@ $('typeIn').addEventListener('keydown', e => { if (e.key === 'Enter') { talk.sen
 document.addEventListener('visibilitychange', () => { if (!talk.head) return; document.visibilityState === 'visible' ? talk.head.start() : talk.head.stop(); });
 
 load();
-renderHome();
+initCloud().then(on => { if (!on) renderHome(); }).catch(e => { console.warn(e); renderHome(); });
