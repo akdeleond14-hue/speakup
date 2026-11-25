@@ -43,6 +43,7 @@ const CHARS = [
       retarget: { Hips: { y: 0.03 }, Spine: { y: 0.02 }, Spine1: { y: 0.02, z: 0.01 }, Spine2: { y: 0.02, z: 0.01 }, Neck: { z: 0.02, y: 0.01 }, Head: { z: 0.02 }, LeftShoulder: { rx: -0.5 }, RightShoulder: { rx: -0.5 }, scaleToHipsLevel: 1.0 },
       baseline: { headRotateX: -0.05, eyeBlinkLeft: 0.15, eyeBlinkRight: 0.15 } },
     sits: [
+      { id: 's0', lv: 1, t: 'Saludos y despedidas', goal: 'Ana walks past your front desk; practice very basic greetings', m: [['Saludar', 'say hello and how are you'], ['Decir tu nombre', 'say her name'], ['Dar las gracias y despedirte', 'say thank you and goodbye']] },
       { id: 's1', lv: 2, t: 'Hacer el check-in', goal: 'Ana arrives at your front desk', m: [['Dar tu nombre y reserva', 'give her name and reservation'], ['Preguntar por el desayuno', 'ask about breakfast'], ['Pedir la clave del wifi', 'ask for the wifi password']] },
       { id: 's2', lv: 4, t: 'Pedir indicaciones', goal: 'Ana wants to visit a place in the city and asks you how to get there', m: [['Preguntar cómo llegar', 'ask how to get there'], ['Preguntar por el transporte', 'ask about transport and cost'], ['Confirmar lo que entendió', 'repeat the directions to confirm']] },
       { id: 's3', lv: 5, t: 'Queja por la habitación', goal: 'Ana calls the desk because her room has a problem (no hot water and noise)', m: [['Explicar el problema', 'explain the problem'], ['Pedir una solución', 'ask for a solution'], ['Negociar una compensación', 'negotiate a discount or upgrade']] }
@@ -59,6 +60,7 @@ const CHARS = [
     persona: 'an efficient, kind airline agent at JFK airport in New York',
     avatar: { url: TH + 'avatars/brunette-t.glb', body: 'F', avatarMood: 'neutral', lipsyncLang: 'en' },
     sits: [
+      { id: 'g0', lv: 1, t: 'Números y horas', goal: 'Ana asks you simple questions about her flight time and gate number', m: [['Preguntar la hora del vuelo', 'ask what time the flight is'], ['Preguntar el número de puerta', 'ask the gate number'], ['Repetir los números', 'repeat the numbers to confirm']] },
       { id: 'g1', lv: 2, t: 'Check-in del vuelo', goal: 'Ana checks in for her flight at your counter', m: [['Decir tu destino', 'say her destination'], ['Entregar la maleta', 'check her bag'], ['Pedir asiento de ventana', 'ask for a window seat']] },
       { id: 'g2', lv: 4, t: 'Vuelo retrasado', goal: 'Ana\'s flight is delayed four hours and she needs options', m: [['Preguntar qué pasó', 'ask what happened'], ['Preguntar las opciones', 'ask about her options'], ['Escoger una nueva reserva', 'choose a new booking']] },
       { id: 'g3', lv: 6, t: 'Entrevista migratoria', goal: 'you play a US immigration officer asking Ana routine questions on arrival', m: [['Explicar el motivo del viaje', 'explain the purpose of the trip'], ['Decir cuánto tiempo te quedas', 'say how long she will stay'], ['Decir dónde te alojas', 'say where she will stay']] }
@@ -70,8 +72,8 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 const today = () => new Date().toLocaleDateString('en-CA');
 const KEY = 'speakup.v1';
-let S = { apiKey: '', level: 1, levelStars: 0, xp: 0, streak: 0, lastDay: '', sessions: 0, friends: {}, words: [], history: [], models: { ...DEFAULT_MODELS }, duplex: false };
-function merge(v) { if (v) S = { ...S, ...v, models: { ...DEFAULT_MODELS, ...(v.models || {}) } }; }
+let S = { apiKey: '', done: {}, unlockLv: 0, level: 1, levelStars: 0, xp: 0, streak: 0, lastDay: '', sessions: 0, friends: {}, words: [], history: [], models: { ...DEFAULT_MODELS }, duplex: false };
+function merge(v) { if (v) { S = { ...S, ...v, models: { ...DEFAULT_MODELS, ...(v.models || {}) } }; S.done = S.done || {}; } }
 function load() { try { merge(JSON.parse(localStorage.getItem(KEY) || 'null')); } catch (e) {} }
 // Nube (Firebase): guarda progreso y clave en la cuenta de Google de Ana; sincroniza Mac ↔ iPhone.
 const cloud = { on: false, user: null, ref: null, fs: null, timer: null, pending: false };
@@ -115,7 +117,12 @@ async function login() {
   try { await cloud.auth.signInWithPopup(cloud.a, new cloud.auth.GoogleAuthProvider()); }
   catch (e) { $('loginErr').innerHTML = '<div class="err">No pude entrar con Google (' + esc(e.code || e.message) + '). Si Safari bloqueó la ventana, vuelve a tocar el botón.</div>'; }
 }
-const L = () => LEVELS[S.level - 1];
+const PATH = CHARS.flatMap(c => c.sits.map(s => ({ ch: c, sit: s }))).sort((a, b) => a.sit.lv - b.sit.lv);
+const unlocked = i => i === 0 || (S.done[PATH[i - 1].sit.id] || 0) >= 1 || PATH[i].sit.lv <= (S.unlockLv || 0);
+const nextIdx = () => { const i = PATH.findIndex((p, k) => unlocked(k) && !((S.done[p.sit.id] || 0) >= 1)); return i < 0 ? PATH.length - 1 : i; };
+const curLv = () => PATH[nextIdx()].sit.lv;
+const L = () => LEVELS[curLv() - 1];
+const TL = () => LEVELS[((talk.sit && talk.sit.lv) || curLv()) - 1];
 const SECTIONS = ['login', 'setup', 'home', 'talk', 'summary', 'words', 'review', 'settings'];
 function show(id) { for (const s of SECTIONS) $(s).classList.toggle('hidden', s !== id); window.scrollTo(0, 0); }
 const due = () => S.words.filter(w => w.due <= Date.now());
@@ -183,6 +190,12 @@ const player = {
   },
   stop() { for (const s of this.src) { try { s.stop(); } catch (e) {} } this.src = []; this.next = 0; clearTimeout(this.endTimer); this.onEnd && this.onEnd(); }
 };
+function beep() {
+  try { const ctx = player.ensure(); const t = ctx.currentTime + 0.02;
+    [[660, 0], [990, 0.12]].forEach(([f, d]) => { const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = f; o.type = 'sine'; g.gain.setValueAtTime(0.0001, t + d); g.gain.exponentialRampToValueAtTime(0.18, t + d + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.14); o.connect(g); g.connect(ctx.destination); o.start(t + d); o.stop(t + d + 0.16); });
+    if (navigator.vibrate) navigator.vibrate(40);
+  } catch (e) {}
+}
 async function sayText(text, voice) {
   // Toca primero el audio (gesto del usuario) y luego pide la voz
   player.ensure();
@@ -220,19 +233,20 @@ const talk = {
   themEl: null, meEl: null, silenceTimer: null, helped: false, closing: false, reconnects: 0,
 
   async open(ch, sit) {
-    Object.assign(this, { active: true, ch, sit, ready: false, paused: false, avatarTalking: false, turnDone: true, audioEnded: true, curThem: '', curMe: '', log: [], fixes: [], words: [], done: new Set(), okN: 0, totN: 0, themEl: null, meEl: null, helped: false, closing: false, reconnects: 0, doneNoted: false });
-    $('tName').textContent = ch.name + ' · ' + ch.place; $('tSit').textContent = sit.t + ' · Nivel ' + S.level + ' (' + L().cefr + ')';
+    Object.assign(this, { active: true, ch, sit, ready: false, paused: false, avatarTalking: false, turnDone: true, audioEnded: true, curThem: '', curMe: '', log: [], fixes: [], words: [], done: new Set(), okN: 0, totN: 0, themEl: null, meEl: null, helped: false, closing: false, reconnects: 0, doneNoted: false, pending: new Set() });
+    $('tName').textContent = ch.name + ' · ' + ch.place; $('tSit').textContent = sit.t + ' · ' + LEVELS[sit.lv - 1].cefr;
     $('scene').className = 'scene ' + ch.scene; $('log').innerHTML = ''; $('cap').classList.add('hidden');
     $('fallback').classList.add('hidden'); $('avatar').innerHTML = ''; $('startOv').classList.remove('hidden');
-    $('startTitle').textContent = 'Cargando a ' + ch.name + '…'; $('startTxt').textContent = 'La primera vez puede tardar unos segundos.'; $('startBtn').disabled = true;
+    $('briefKicker').textContent = 'Lección · ' + LEVELS[sit.lv - 1].cefr + ' · ' + ch.name + ', ' + ch.place;
+    $('startTitle').textContent = sit.t; $('briefMis').innerHTML = sit.m.map(x => '<li>' + esc(x[0]) + '</li>').join('');
+    $('startTxt').textContent = ''; $('startBtn').disabled = true; $('startBtn').textContent = 'Cargando a ' + ch.name + '…';
     this.renderMis(); this.setStatus('Cargando…'); this.setMic('wait');
     show('talk');
     requestAnimationFrame(() => { $('stage').style.top = document.querySelector('#talk .bar').offsetHeight + 'px'; });
-    addNote(`Misión con ${esc(ch.name)}: ${sit.m.map(x => esc(x[0])).join(' · ')}. Habla en inglés; si te trabas, toca <b>Ayúdame</b> o di algo en español y ${esc(ch.name)} te ayuda.`);
     try {
       const { TalkingHead } = await import('talkinghead');
       this.head = new TalkingHead($('avatar'), { lipsyncModules: ['en'], cameraView: 'upper', avatarIdleEyeContact: 0.6, avatarSpeakingEyeContact: 0.8 });
-      await this.head.showAvatar(ch.avatar, ev => { if (ev.lengthComputable) $('startTxt').textContent = 'Cargando ' + Math.min(100, Math.round(ev.loaded / ev.total * 100)) + '%'; });
+      await this.head.showAvatar(ch.avatar, ev => { if (ev.lengthComputable) $('startBtn').textContent = 'Cargando a ' + ch.name + '… ' + Math.min(100, Math.round(ev.loaded / ev.total * 100)) + '%'; });
       await this.head.streamStart({ sampleRate: 24000, lipsyncType: 'visemes', lipsyncLang: 'en', waitForAudioChunks: true },
         () => { this.onAudioStart(); }, () => { this.onAudioEnd(); });
     } catch (e) {
@@ -241,9 +255,8 @@ const talk = {
       player.onEnd = () => this.onAudioEnd();
     }
     if (!this.active) return;
-    $('startTitle').textContent = '¿Lista para hablar con ' + ch.name + '?';
-    $('startTxt').textContent = 'Toca el botón y permite el micrófono. ' + (S.duplex ? '' : 'Mientras ' + ch.name + ' habla, el micrófono espera; luego te toca.');
-    $('startBtn').disabled = false; this.setStatus('Listo');
+    $('startTxt').textContent = 'Al empezar, permite el micrófono si te lo pide.';
+    $('startBtn').disabled = false; $('startBtn').textContent = '¡Empezar!'; this.setStatus('Listo');
   },
 
   // Debe llamarse directamente desde el toque (iPhone exige un gesto para audio y micrófono)
@@ -267,7 +280,9 @@ const talk = {
     await this.micCtx.audioWorklet.addModule(url);
     const src = this.micCtx.createMediaStreamSource(this.micStream);
     this.micNode = new AudioWorkletNode(this.micCtx, 'mic16k');
-    this.micNode.port.onmessage = e => { if (this.micOpen()) this.send({ realtimeInput: { audio: { data: bytesToB64(e.data), mimeType: 'audio/pcm;rate=16000' } } }); };
+    this.micNode.port.onmessage = e => {
+      if (this.turnState === 'you' || this.turnState === 'hear') { const a = new Int16Array(e.data); let s = 0; for (let i = 0; i < a.length; i += 4) s += a[i] * a[i]; const r = Math.sqrt(s / (a.length / 4)); $('lvl').style.width = Math.min(100, r / 60) + '%'; }
+      if (this.micOpen()) this.send({ realtimeInput: { audio: { data: bytesToB64(e.data), mimeType: 'audio/pcm;rate=16000' } } }); };
     src.connect(this.micNode);
     const sink = this.micCtx.createGain(); sink.gain.value = 0; this.micNode.connect(sink); sink.connect(this.micCtx.destination);
   },
@@ -276,8 +291,8 @@ const talk = {
   systemPrompt(resume) {
     const f = S.friends[this.ch.id];
     return `You are ${this.ch.name}, ${this.ch.persona}. Situation: ${this.sit.goal}. Place: ${this.ch.place}.
-You are talking face to face with Ana, a Colombian woman (native Spanish speaker) who is learning English. Her level is CEFR ${L().cefr}.
-How to speak at her level: ${L().talk}.
+You are talking face to face with Ana, a Colombian woman (native Spanish speaker) who is learning English. Her level is CEFR ${TL().cefr}.
+How to speak at her level: ${TL().talk}.
 Rules:
 - Speak ONLY English. Keep every turn short. Never give long explanations.
 - Stay in character, be warm and natural, and ask one question at a time.
@@ -323,8 +338,12 @@ ${resume ? `- The call was briefly cut. Continue naturally from here. Recent con
 
   onServer(m) {
     if (m.setupComplete) {
-      this.ready = true; this.gotSetup = true; this.reconnects = 0; this.setStatus(this.avatarTalking ? this.ch.name + ' habla' : 'Te escucho'); this.setMic('on');
-      if (!this.log.length && !this.curThem) this.send({ realtimeInput: { text: '(Ana has just arrived. Start the scene now.)' } });
+      this.ready = true; this.gotSetup = true; this.reconnects = 0;
+      if (!this.log.length && !this.curThem) {
+        this.avatarTalking = true; this.turnDone = false; this.audioEnded = true; this.setMic('listen'); this.setStatus(this.ch.name + ' habla');
+        this.send({ realtimeInput: { text: '(Ana has just arrived. Start the scene now.)' } });
+        setTimeout(() => { if (this.active && this.avatarTalking && this.audioEnded && !this.curThem) { this.turnDone = true; this.maybeReopen(); } }, 8000);
+      } else { this.setStatus('Te escucho'); this.setMic(this.avatarTalking ? 'listen' : 'you'); }
       return;
     }
     if (m.goAway) { this.setStatus('Renovando la llamada…'); return; }
@@ -383,6 +402,7 @@ ${resume ? `- The call was briefly cut. Continue naturally from here. Recent con
   },
   showMe() {
     if (!this.meEl) this.meEl = addBubble('me', '');
+    if (this.turnState === 'you') this.setMic('hear');
     this.meEl.querySelector('.tx').textContent = this.curMe;
   },
   finishTurn(interrupted) {
@@ -394,12 +414,12 @@ ${resume ? `- The call was briefly cut. Continue naturally from here. Recent con
     if (them && themEl) {
       themEl.querySelector('.acts').innerHTML = `<button class="mini" data-say="${esc(them)}" data-voice="${this.ch.voice}">Escuchar otra vez</button>`;
     }
-    if (me || them) this.analyze(me, them, meEl, themEl);
+    if (me || them) { const pr = this.analyze(me, them, meEl, themEl); this.pending.add(pr); pr.finally(() => this.pending.delete(pr)); }
   },
 
   async analyze(me, them, meEl, themEl) {
-    const lowLv = S.level <= 4;
-    const prompt = `You help Ana, a Colombian Spanish speaker learning English at CEFR ${L().cefr}, in a role-play with ${this.ch.name} (${this.sit.goal}).
+    const lowLv = this.sit.lv <= 4;
+    const prompt = `You help Ana, a Colombian Spanish speaker learning English at CEFR ${TL().cefr}, in a role-play with ${this.ch.name} (${this.sit.goal}).
 Mission goals: ${this.sit.m.map((x, i) => `m${i + 1}: ${x[1]}`).join('; ')}.
 Conversation so far:
 ${this.transcript()}
@@ -435,10 +455,10 @@ Rules: speech was transcribed automatically, so ignore capitalization, punctuati
     this.helped = true;
     const box = addNote('Pensando opciones…');
     try {
-      const v = await gText(`Ana (Colombian, CEFR ${L().cefr}) is in a role-play with ${this.ch.name}: ${this.sit.goal}. Pending goals: ${this.sit.m.filter((x, i) => !this.done.has('m' + (i + 1))).map(x => x[1]).join('; ') || 'free conversation'}.
+      const v = await gText(`Ana (Colombian, CEFR ${TL().cefr}) is in a role-play with ${this.ch.name}: ${this.sit.goal}. Pending goals: ${this.sit.m.filter((x, i) => !this.done.has('m' + (i + 1))).map(x => x[1]).join('; ') || 'free conversation'}.
 Conversation:
 ${this.transcript() || '(just started)'}
-Give her two different short, natural answers she could say next (level ${L().cefr}). Return JSON only: {"options":[{"en":"...","es":"traducción"},{"en":"...","es":"..."}]}`);
+Give her two different short, natural answers she could say next (level ${TL().cefr}). Return JSON only: {"options":[{"en":"...","es":"traducción"},{"en":"...","es":"..."}]}`);
       box.innerHTML = 'Toca una opción para escucharla y luego dila en voz alta:' + (v.options || []).map(o => `<button class="opt" data-say="${esc(o.en)}" data-voice="Kore">${esc(o.en)}<small>${esc(o.es)}</small></button>`).join('');
     } catch (e) { box.textContent = e.message; }
   },
@@ -446,7 +466,15 @@ Give her two different short, natural answers she could say next (level ${L().ce
   transcript() { return this.log.map(l => l.who + ': ' + l.text).join('\n'); },
   renderMis() { $('mis').innerHTML = this.sit.m.map((x, i) => `<span class="mi ${this.done.has('m' + (i + 1)) ? 'done' : ''}">${i + 1}. ${esc(x[0])}</span>`).join(''); },
   setStatus(t) { $('status').textContent = t; },
-  setMic(state) { const b = $('micBtn'); b.className = 'mic ' + (state === 'on' ? 'on' : state === 'off' ? '' : 'wait'); $('micNote').textContent = state === 'on' ? 'Habla ahora. Toca el botón para pausar.' : state === 'off' ? 'Micrófono en pausa. Tócalo para seguir.' : state === 'mute' ? this.ch.name + ' está hablando…' : 'Preparando…'; },
+  setMic(state) {
+    const map = { on: 'you', mute: 'listen' }; state = map[state] || state;
+    const prev = this.turnState; this.turnState = state;
+    const n = this.ch ? this.ch.name : '';
+    const txt = { wait: ['Conectando…', ''], listen: ['Escucha a ' + n + '…', 'Espera tu turno'], you: ['¡Tu turno! Habla ahora', 'Habla en inglés; cuando termines, ' + n + ' responde'], hear: ['Te escucho…', 'Sigue hablando o haz una pausa para terminar'], off: ['En pausa', 'Toca aquí para seguir'], think: ['Pensando…', ''] }[state] || ['', ''];
+    $('turnBtn').className = 'turn ' + state; $('turnLbl').textContent = txt[0]; $('turnSub').textContent = txt[1];
+    $('pauseBtn').textContent = state === 'off' ? 'Seguir' : 'Pausa';
+    if (state === 'you' && prev === 'listen') beep();
+  },
   toggleMic() {
     if (!this.ws || this.ws.readyState > 1) { this.reconnects = 0; this.setStatus('Reconectando…'); this.connect(this.log.length > 0); return; }
     this.paused = !this.paused; this.setMic(this.paused ? 'off' : (this.avatarTalking ? 'mute' : 'on')); this.setStatus(this.paused ? 'Micrófono en pausa' : (this.avatarTalking ? this.ch.name + ' habla' : 'Te escucho'));
@@ -477,6 +505,8 @@ function addErr(html) { const d = document.createElement('div'); d.className = '
 // ---------- Resumen ----------
 async function finish() {
   const t = talk, ch = t.ch, sit = t.sit;
+  if (t.curMe || t.curThem) t.finishTurn(false);
+  if (t.pending && t.pending.size) { $('turnLbl').textContent = 'Revisando tus frases…'; await Promise.race([Promise.all([...t.pending]), new Promise(r => setTimeout(r, 6000))]); }
   const spoke = t.log.filter(l => l.who === 'Ana').length;
   const transcript = t.transcript(), fixes = t.fixes.slice(), words = t.words.slice(), done = new Set(t.done), okN = t.okN, totN = t.totN;
   t.close();
@@ -485,7 +515,7 @@ async function finish() {
   $('sumBody').innerHTML = '<div class="card"><h2>Preparando tu resumen…</h2></div>';
   let v = null;
   try {
-    v = await gText(`You are an English coach for Ana, a Colombian Spanish speaker at CEFR ${L().cefr}. Her role-play with ${ch.name} (${sit.goal}):
+    v = await gText(`You are an English coach for Ana, a Colombian Spanish speaker at CEFR ${TL().cefr}. Her role-play with ${ch.name} (${sit.goal}):
 ${transcript}
 Corrections given during the chat: ${JSON.stringify(fixes)}
 Return JSON only:
@@ -494,10 +524,13 @@ errors: her most repeated or important mistakes, max 3, most frequent first (emp
   } catch (e) { toast(e.message); }
   const acc = totN ? okN / totN : 0, mr = done.size / sit.m.length;
   const stars = totN < 3 ? 0 : (mr >= 1 && acc >= 0.7 ? 3 : (mr >= 0.5 && acc >= 0.5 ? 2 : 1));
-  let up = false;
+  const lvBefore = curLv(), prevBest = S.done[sit.id] || 0;
+  S.done[sit.id] = Math.max(prevBest, stars);
+  const passed = stars >= 1, firstPass = passed && prevBest < 1;
   S.sessions++; S.xp += 20 + 5 * spoke + 10 * done.size;
   const d = today(); if (S.lastDay !== d) { const y = new Date(Date.now() - 864e5).toLocaleDateString('en-CA'); S.streak = S.lastDay === y ? S.streak + 1 : 1; S.lastDay = d; }
-  if (S.level < LEVELS.length) { S.levelStars += stars; if (S.levelStars >= NEED) { S.level++; S.levelStars -= NEED; up = true; } }
+  if (firstPass) S.xp += 30;
+  const up = curLv() > lvBefore;
   const errs = v?.errors?.length ? v.errors : fixes.slice(0, 3).map(f => ({ pattern: f.es, wrong: f.said, right: f.native }));
   const ws = (v?.words?.length ? v.words : words).slice(0, 5);
   const now = Date.now();
@@ -507,31 +540,40 @@ errors: her most repeated or important mistakes, max 3, most frequent first (emp
   S.history.unshift({ date: d, ch: ch.id, sit: sit.id, stars, errors: errs, words: ws, transcript });
   S.history = S.history.slice(0, 30); S.words = S.words.slice(-400);
   save();
-  const opened = up ? CHARS.flatMap(c => c.sits.filter(s => s.lv === S.level).map(s => c.name + ': ' + s.t)) : [];
+  const nx = PATH[nextIdx()], isLast = (S.done[nx.sit.id] || 0) >= 1;
   $('sumBody').innerHTML = `
-  ${up ? `<div class="card" style="background:var(--tom);color:#fff;border:0;text-align:center"><h2>¡Subiste al nivel ${S.level}: ${esc(L().n)} (${L().cefr})!</h2><p>Los personajes te hablarán un poco más natural.${opened.length ? ' Nuevas situaciones: ' + esc(opened.join(', ')) + '.' : ''}</p></div>` : ''}
+  ${up ? `<div class="card" style="background:var(--tom);color:#fff;border:0;text-align:center"><h2>¡Subiste a ${L().cefr}: ${esc(L().n)}!</h2><p>Desde ahora los personajes te hablarán un poco más natural.</p></div>` : ''}
   <div class="card" style="text-align:center"><div class="stars" aria-label="${stars} estrellas">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</div>
-    <h2>Hablaste con ${esc(ch.name)}</h2><p>${esc(v?.praise || '¡Buen trabajo practicando!')}</p>
+    <h2>${passed ? '¡Lección completada!' : 'Casi lo logras'}</h2><p class="note">${esc(sit.t)} con ${esc(ch.name)}</p><p>${esc(v?.praise || '¡Buen trabajo practicando!')}</p>
     <p class="note">Misiones: ${done.size} de ${sit.m.length} · Frases correctas: ${okN} de ${totN} · Racha: ${S.streak} día(s)</p>
-    <p class="note">${totN < 3 ? 'Para ganar estrellas di al menos 3 frases.' : 'Para 3 estrellas: todas las misiones y 70% o más de frases correctas.'} ${S.level < LEVELS.length ? `Nivel ${S.level}: ${S.levelStars} de ${NEED} estrellas para el siguiente.` : 'Estás en el nivel más alto.'}</p></div>
+    <p class="note">${totN < 3 ? 'Para pasar la lección di al menos 3 frases en inglés.' : 'Para 3 estrellas: todas las misiones y 70% o más de frases correctas.'}</p>
+    ${passed && !isLast ? `<button class="pri" style="width:100%;margin-top:10px" data-ch="${nx.ch.id}" data-sit="${nx.sit.id}">Siguiente lección: ${esc(nx.sit.t)}</button>` : ''}
+    ${!passed ? `<button class="pri" style="width:100%;margin-top:10px" data-ch="${ch.id}" data-sit="${sit.id}">Intentarlo otra vez</button>` : ''}</div>
   <div class="card"><h3>Tus errores más repetidos</h3>${errs.length ? errs.map(e => `<div class="li"><div class="es">${esc(e.pattern)}</div>${e.wrong ? `<div>Dijiste: <s>${esc(e.wrong)}</s></div>` : ''}<div class="en">${esc(e.right)} <button class="mini" data-say="${esc(e.right)}" data-voice="Kore">Escuchar</button></div></div>`).join('') : '<p>¡Ningún error importante esta vez!</p>'}</div>
   <div class="card"><h3>5 palabras nuevas</h3>${ws.length ? ws.map(w => `<div class="li"><div class="en">${esc(w.en)} <button class="mini" data-say="${esc(w.en)}" data-voice="Kore">Escuchar</button></div><div class="es">${esc(w.es)}${w.example ? ' · ' + esc(w.example) : ''}</div></div>`).join('') : '<p class="note">Sin palabras nuevas esta vez.</p>'}</div>
   <details class="card"><summary><b>Ver la conversación completa</b></summary><pre style="white-space:pre-wrap;font:15px/1.5 Nunito,sans-serif">${esc(transcript)}</pre></details>
-  <div class="two"><button class="pri" data-go="home">Otra conversación</button><button class="yel" data-go="review">Repasar ahora</button></div>`;
+  <div class="two"><button data-go="home">Volver al camino</button><button class="yel" data-go="review">Repasar ahora</button></div>`;
 }
 
 // ---------- Inicio ----------
 function renderHome() {
   if (!S.apiKey) { show('setup'); return; }
-  $('hStreak').textContent = S.streak; $('hXp').textContent = S.xp; $('hWords').textContent = S.words.length; $('dueN').textContent = due().length;
-  $('lvName').textContent = `Nivel ${S.level}: ${L().n}`; $('lvCefr').textContent = L().cefr;
-  $('path').innerHTML = LEVELS.map((l, i) => `<span class="dot ${i + 1 < S.level ? 'past' : i + 1 === S.level ? 'now' : ''}" title="${esc(l.n)}">${l.cefr}</span>`).join('');
-  const max = S.level >= LEVELS.length;
-  $('lvFill').style.width = (max ? 100 : S.levelStars / NEED * 100) + '%';
-  $('lvTxt').textContent = max ? '¡Nivel más alto! Sigue practicando.' : `${S.levelStars} de ${NEED} estrellas para el nivel ${S.level + 1} (${LEVELS[S.level].cefr}). Cada conversación da hasta 3.`;
-  $('friends').innerHTML = CHARS.map(c => `<div class="friend"><div class="hd" style="background:${c.col}"><span class="ini">${c.name[0]}</span><div><h3>${c.name}</h3><small>${esc(c.place)}${S.friends[c.id] ? ' · ' + S.friends[c.id].talks + ' charla(s)' : ''}</small></div></div>
-    ${c.sits.map(s => { const lk = s.lv > S.level; return `<button class="sit ${lk ? 'lock' : ''}" data-ch="${c.id}" data-sit="${s.id}" ${lk ? 'disabled' : ''}><span>${esc(s.t)}</span><span class="lv">${lk ? 'Nivel ' + s.lv : 'Hablar'}</span></button>`; }).join('')}</div>`).join('');
+  const ni = nextIdx();
+  $('hStreak').textContent = S.streak; $('hXp').textContent = S.xp; $('hLv').textContent = L().cefr; $('dueN').textContent = due().length;
+  const doneN = PATH.filter(p => (S.done[p.sit.id] || 0) >= 1).length;
+  $('hSub').textContent = `Lección ${Math.min(doneN + 1, PATH.length)} de ${PATH.length} · ${L().n}`;
+  let html = '', lastLv = 0;
+  PATH.forEach((p, i) => {
+    if (p.sit.lv !== lastLv) { lastLv = p.sit.lv; const l = LEVELS[lastLv - 1]; html += `<div class="unit"><b>${l.cefr}</b>${esc(l.n)}</div>`; }
+    const st = S.done[p.sit.id] || 0, open = unlocked(i), cur = i === ni && open && st < 1;
+    const x = [0, 1, 0, -1][i % 4];
+    html += `<div class="node-row" style="--x:${x}">${cur ? '<div class="callout">EMPEZAR</div>' : ''}
+      <button class="node ${cur ? 'cur' : st >= 1 ? 'done' : open ? 'open' : 'lock'}" data-ch="${p.ch.id}" data-sit="${p.sit.id}" ${open ? '' : 'disabled'} style="--c:${p.ch.col}" aria-label="${esc(p.sit.t)} con ${esc(p.ch.name)}${open ? '' : ' (bloqueada)'}">${open ? p.ch.name[0] : '<svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>'}</button>
+      <div class="nlabel"><b>${esc(p.sit.t)}</b><span>${esc(p.ch.name)} · ${esc(p.ch.place)}</span>${st ? `<span class="st">${'★'.repeat(st)}${'☆'.repeat(3 - st)}</span>` : ''}</div></div>`;
+  });
+  $('lpath').innerHTML = html;
   show('home');
+  setTimeout(() => { const c = document.querySelector('.node.cur'); if (c) c.scrollIntoView({ block: 'center' }); }, 60);
 }
 
 // ---------- Vocabulario y repaso ----------
@@ -559,7 +601,7 @@ function renderSettings() {
   <div class="card"><label for="sKey">Clave de Gemini</label><input id="sKey" type="password" value="${esc(S.apiKey)}" autocomplete="off">
   <label><input type="checkbox" id="sDuplex" style="width:auto" ${S.duplex ? 'checked' : ''}> Uso audífonos (puedo interrumpir al personaje)</label>
   <p class="note">Sin audífonos déjalo apagado: así el personaje no se escucha a sí mismo por el altavoz.</p>
-  <label for="sLevel">Nivel</label><select id="sLevel">${LEVELS.map((l, i) => `<option value="${i + 1}" ${i + 1 === S.level ? 'selected' : ''}>${i + 1} · ${l.cefr} · ${esc(l.n)}</option>`).join('')}</select>
+  <label for="sLevel">Abrir lecciones hasta el nivel</label><select id="sLevel"><option value="0" ${!S.unlockLv ? 'selected' : ''}>Ir en orden (recomendado)</option>${LEVELS.map((l, i) => `<option value="${i + 1}" ${i + 1 === S.unlockLv ? 'selected' : ''}>${l.cefr} · ${esc(l.n)}</option>`).join('')}</select><p class="note">Las lecciones se abren al pasar la anterior. Si ya sabes más, ábrelas hasta tu nivel.</p>
   <details><summary class="note" style="margin-top:12px">Modelos de Google (solo si dejan de funcionar)</summary>
   <label for="mLive">Voz en vivo</label><input id="mLive" value="${esc(S.models.live)}"><label for="mText">Texto</label><input id="mText" value="${esc(S.models.text)}"><label for="mAlt">Texto (respaldo)</label><input id="mAlt" value="${esc(S.models.textAlt)}"><label for="mTts">Voz para escuchar frases</label><input id="mTts" value="${esc(S.models.tts)}"><button id="mReset" style="margin-top:8px">Restaurar modelos</button></details>
   <button class="pri" id="sSave" style="width:100%;margin-top:14px">Guardar</button></div>
@@ -587,7 +629,8 @@ document.addEventListener('click', async e => {
       b.disabled = false; break;
     }
     case 'startBtn': talk.begin(); break;
-    case 'micBtn': talk.toggleMic(); break;
+    case 'turnBtn': if (['off', 'wait'].includes(talk.turnState)) talk.toggleMic(); break;
+    case 'pauseBtn': talk.toggleMic(); break;
     case 'helpBtn': talk.help(); break;
     case 'typeBtn': $('typing').classList.toggle('hidden'); if (!$('typing').classList.contains('hidden')) $('typeIn').focus(); break;
     case 'typeSend': talk.sendTyped($('typeIn').value); $('typeIn').value = ''; break;
@@ -600,7 +643,7 @@ document.addEventListener('click', async e => {
     case 'gNo': grade(false); break;
     case 'mReset': S.models = { ...DEFAULT_MODELS }; save(); renderSettings(); break;
     case 'sSave': {
-      S.apiKey = $('sKey').value.trim(); S.duplex = $('sDuplex').checked; const lv = +$('sLevel').value; if (lv !== S.level) { S.level = lv; S.levelStars = 0; }
+      S.apiKey = $('sKey').value.trim(); S.duplex = $('sDuplex').checked; S.unlockLv = +$('sLevel').value;
       S.models = { live: $('mLive').value.trim() || DEFAULT_MODELS.live, text: $('mText').value.trim() || DEFAULT_MODELS.text, textAlt: $('mAlt').value.trim() || DEFAULT_MODELS.textAlt, tts: $('mTts').value.trim() || DEFAULT_MODELS.tts };
       save(); renderHome(); break;
     }
